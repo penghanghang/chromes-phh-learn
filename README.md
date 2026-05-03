@@ -235,7 +235,7 @@
 
 | 项目 | 信息 |
 |------|------|
-| 项目名称 | 智能视频助手 (Smart Video Helper) |
+| 项目名称 | 智能视频助手 (Chromes Phh Learn) |
 | 作者 | [penghanghang] |
 | GitHub | [https://github.com/penghanghang/chromes-phh-learn](https://github.com/penghanghang/chromes-phh-learn) |
 | 邮箱 | 447699084@qq.com
@@ -278,6 +278,3 @@
 **更新日期**：2026-05-03  
 **适用插件版本**：v2.0 及以上
 ```
-
----
-这份文档按时间节点完整记录了从 v1.0 到 v2.0 的所有功能演进，适合作为项目的正式说明文档。

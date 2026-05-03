@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+   <title>🎬 我的视频助手 - 设置</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      width: 280px;
+      padding: 16px;
+      background: #1e1e2f;
+      color: #eee;
+      font-family: system-ui, 'Segoe UI', sans-serif;
+      display: block !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+    }
+    h3 {
+      margin-bottom: 12px;
+      text-align: center;
+    }
+    .toggle-switch {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #2d2d3a;
+      padding: 8px 12px;
+      border-radius: 28px;
+      margin-bottom: 16px;
+    }
+    .toggle-btn {
+      width: 44px;
+      height: 24px;
+      background: #555;
+      border-radius: 40px;
+      position: relative;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .toggle-btn.active {
+      background: #4caf50;
+    }
+    .toggle-btn .knob {
+      width: 20px;
+      height: 20px;
+      background: white;
+      border-radius: 50%;
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      transition: 0.2s;
+    }
+    .toggle-btn.active .knob {
+      left: 22px;
+    }
+    .control {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    input {
+      width: 100%;
+      padding: 6px;
+      border-radius: 8px;
+      border: none;
+      background: #2d2d3a;
+      color: white;
+    }
+    button {
+      width: 100%;
+      background: #4c6ef5;
+      border: none;
+      padding: 8px;
+      border-radius: 28px;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    .status {
+      font-size: 12px;
+      text-align: center;
+      margin-top: 12px;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+<body>
+  <h3>🎬 视频助手设置</h3>
+  <div class="toggle-switch">
+    <span>启用插件</span>
+    <div id="enableToggle" class="toggle-btn">
+      <div class="knob"></div>
+    </div>
+  </div>
+  <div class="control">
+    <label>⏩ 跳过片头秒数</label>
+    <input type="number" id="skipSeconds" min="0" max="300" step="5" value="60">
+  </div>
+  <button id="saveBtn">保存设置</button>
+  <div class="status" id="statusMsg">就绪</div>
+  <script src="popup.js"></script>
+</body>
+</html>

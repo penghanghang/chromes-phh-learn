@@ -19,7 +19,7 @@
 
 1. 下载本仓库代码到本地
    ```bash
-   git clone https://github.com/你的用户名/auto-video-helper.git
+   git clone https://github.com/penghanghang/auto-video-helper.git
    ```
    或者直接下载ZIP压缩包并解压
 

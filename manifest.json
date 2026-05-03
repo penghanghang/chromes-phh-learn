@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "🎬 我的视频助手",
+  "name": "智能视频助手",
   "version": "2.0",
-  "description": "可设置跳过片头秒数，并自动下一集",
-  "permissions": ["storage"],   // 移除 "windows" 权限
+  "description": "自动跳过片头、自动下一集、支持手动上下集切换",
+  "permissions": ["storage"],
   "action": {
-    "default_popup": "popup.html",    // 改回这行
-    "default_title": "视频助手设置"
+    "default_popup": "popup.html",
+    "default_title": "视频助手设置",
+    "default_icon": "icon.png"
   },
   "content_scripts": [
     {

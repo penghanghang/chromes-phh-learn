@@ -1,206 +1,501 @@
-// ======================= 配置 =======================
+// ======================= 全局变量 =======================
 let isEnabled = true;
-let skipSeconds = 60;
-let hasSkipped = false;
+let skipStartSeconds = 60;
+let showLogPanel = true;           // 日志面板开关
+let hasSkippedStart = false;
 let clickedNext = false;
+let clickedPrev = false;
 let currentVideo = null;
+let episodeButtons = [];
+let totalEpisodes = 0;
+let firstEpisode = null;
+let lastEpisode = null;
+let scanDone = false;
+let isScanning = false;
+let cachedEpisode = null;
+let cachedUrl = null;
 
-// 加载配置
+// 集数识别配置
+let episodeConfig = {
+  minEpisode: 1,
+  maxEpisode: 500,
+  mustKeywords: ['集', '第'],
+  excludeKeywords: ['评论', '回复', '点赞', '收藏', '分享', '举报', '弹幕', '下一页', '上一页', '首页', '尾页', '播放量', '观看', '人气', '时长', '总集数', '完结', '预告', '花絮', '推荐'],
+  customSelector: '',
+  excludeUrlKeywords: ['comment', 'review', 'user', 'account', 'search']
+};
+
+// ======================= 日志函数（根据开关决定是否显示） =======================
+window.pluginLog = function(msg, isError = false) {
+  if (!showLogPanel) return;
+  const logPanel = document.getElementById('plugin-log-panel');
+  if (!logPanel) return;
+  const line = document.createElement('div');
+  line.textContent = new Date().toLocaleTimeString().slice(0,8) + ' ' + msg;
+  line.style.color = isError ? '#f66' : '#0f0';
+  line.style.borderBottom = '1px solid #333';
+  line.style.padding = '3px 2px';
+  line.style.fontSize = '10px';
+  logPanel.appendChild(line);
+  logPanel.scrollTop = logPanel.scrollHeight;
+  while (logPanel.children.length > 40) logPanel.removeChild(logPanel.firstChild);
+};
+
+// ======================= 日志面板（根据开关创建） =======================
+function addPageLogger() {
+  if (!showLogPanel) return;
+  if (document.getElementById('plugin-log-panel')) return;
+  const panel = document.createElement('div');
+  panel.id = 'plugin-log-panel';
+  panel.style.cssText = `
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    width: 420px;
+    max-height: 250px;
+    background: rgba(0,0,0,0.8);
+    color: #0f0;
+    font-family: monospace;
+    font-size: 11px;
+    padding: 8px;
+    border-radius: 8px;
+    z-index: 9999;
+    overflow-y: auto;
+    pointer-events: auto;
+    border: 1px solid #0f0;
+  `;
+  document.body.appendChild(panel);
+  pluginLog('📌 日志面板已启动');
+}
+
+// ======================= 配置加载 =======================
 async function loadConfig() {
-  const result = await chrome.storage.local.get(['enabled', 'skipSeconds']);
+  const result = await chrome.storage.local.get([
+    'enabled', 'skipStartSeconds', 'showLogPanel',
+    'minEpisode', 'maxEpisode', 'mustKeywords', 'excludeKeywords', 'customSelector', 'excludeUrlKeywords'
+  ]);
+  
   isEnabled = result.enabled !== undefined ? result.enabled : true;
-  skipSeconds = result.skipSeconds !== undefined ? result.skipSeconds : 60;
-  console.log(`配置: 启用=${isEnabled}, 跳过秒数=${skipSeconds}`);
+  skipStartSeconds = result.skipStartSeconds !== undefined ? result.skipStartSeconds : 60;
+  showLogPanel = result.showLogPanel !== undefined ? result.showLogPanel : true;
+  
+  episodeConfig.minEpisode = result.minEpisode !== undefined ? result.minEpisode : 1;
+  episodeConfig.maxEpisode = result.maxEpisode !== undefined ? result.maxEpisode : 500;
+  episodeConfig.mustKeywords = result.mustKeywords ? result.mustKeywords.split(',').map(s => s.trim()) : ['集', '第'];
+  episodeConfig.excludeKeywords = result.excludeKeywords ? result.excludeKeywords.split(',').map(s => s.trim().toLowerCase()) : [];
+  episodeConfig.customSelector = result.customSelector || '';
+  episodeConfig.excludeUrlKeywords = result.excludeUrlKeywords ? result.excludeUrlKeywords.split(',').map(s => s.trim().toLowerCase()) : [];
+  
+  // 根据开关创建或移除日志面板
+  if (showLogPanel) {
+    addPageLogger();
+  } else {
+    const panel = document.getElementById('plugin-log-panel');
+    if (panel) panel.remove();
+  }
+  
+  pluginLog(`配置加载完成`);
 }
 
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.enabled) isEnabled = changes.enabled.newValue;
-  if (changes.skipSeconds) skipSeconds = changes.skipSeconds.newValue;
+  if (changes.skipStartSeconds) {
+    skipStartSeconds = changes.skipStartSeconds.newValue;
+    hasSkippedStart = false;
+  }
+  if (changes.showLogPanel) {
+    showLogPanel = changes.showLogPanel.newValue;
+    if (showLogPanel) {
+      addPageLogger();
+    } else {
+      const panel = document.getElementById('plugin-log-panel');
+      if (panel) panel.remove();
+    }
+  }
+  loadConfig();
 });
 
-// ======================= 1. 固定时间跳过片头 =======================
-function trySkipIntro() {
-  if (!isEnabled || !currentVideo || hasSkipped) return;
-  if (currentVideo.currentTime < skipSeconds && skipSeconds > 0) {
-    console.log(`跳过片头: ${currentVideo.currentTime.toFixed(1)}s → ${skipSeconds}s`);
-    currentVideo.currentTime = skipSeconds;
-    hasSkipped = true;
-  } else if (currentVideo.currentTime >= skipSeconds) {
-    hasSkipped = true;
+// ======================= 1. 跳过片头 =======================
+function trySkipStart(video) {
+  if (!isEnabled || hasSkippedStart) return;
+  if (skipStartSeconds <= 0) {
+    hasSkippedStart = true;
+    return;
+  }
+  if (video.currentTime < skipStartSeconds && skipStartSeconds < video.duration) {
+    video.currentTime = skipStartSeconds;
+    hasSkippedStart = true;
+    pluginLog(`⏩ 跳过片头 ${skipStartSeconds}s`);
+  } else if (video.currentTime >= skipStartSeconds) {
+    hasSkippedStart = true;
   }
 }
 
+// ======================= 2. 视频绑定 =======================
 function bindVideo(video) {
   if (video.dataset.skipBound) return;
   video.dataset.skipBound = 'true';
   currentVideo = video;
-  video.addEventListener('play', () => trySkipIntro());
-  video.addEventListener('timeupdate', () => {
-    if (!hasSkipped && video.currentTime < skipSeconds) trySkipIntro();
-    else if (video.currentTime >= skipSeconds) hasSkipped = true;
-  });
+  
+  const onPlay = () => {
+    if (!hasSkippedStart) trySkipStart(video);
+    updatePlayPauseButton(true);
+  };
+  
+  const onPause = () => updatePlayPauseButton(false);
+  
+  const onTimeUpdate = () => {
+    if (!hasSkippedStart) {
+      trySkipStart(video);
+      if (hasSkippedStart) {
+        video.removeEventListener('timeupdate', onTimeUpdate);
+      }
+    }
+  };
+  
+  video.addEventListener('play', onPlay);
+  video.addEventListener('pause', onPause);
+  video.addEventListener('timeupdate', onTimeUpdate);
+  
   video.addEventListener('ended', () => {
-    if (isEnabled && !clickedNext) {
-      console.log('视频播放结束，尝试自动下一集');
+    if (isEnabled && !clickedNext && scanDone) {
+      pluginLog(`📺 自动下一集`);
       clickNextEpisode();
     }
-  });
-  if (video.readyState >= 1) trySkipIntro();
+  }, { once: true });
+  
+  if (video.readyState >= 1 && video.currentTime < skipStartSeconds) {
+    trySkipStart(video);
+  }
+  
+  pluginLog(`🎬 视频绑定完成`);
 }
 
-// ======================= 2. 智能识别集数按钮（增强版） =======================
-// 从元素中提取集数（支持文字、数字、href）
-function extractEpisodeNumber(el) {
-  // 优先从文字提取
-  let text = el.innerText?.trim() || '';
-  let match = text.match(/(\d+)/);
-  if (match) return parseInt(match[1], 10);
-  // 从 href 提取
-  let href = el.getAttribute('href') || '';
-  match = href.match(/(\d+)/);
-  if (match) return parseInt(match[1], 10);
-  // 从 data-* 属性提取
-  let dataEp = el.getAttribute('data-episode') || el.getAttribute('data-num');
-  if (dataEp) return parseInt(dataEp, 10);
-  return null;
-}
-
-// 获取当前播放的集数（通过高亮样式或URL）
-function getCurrentEpisode() {
-  // 1. 查找高亮元素（常见 active/current/on 类）
-  const activeSelectors = [
-    '.active', '.current', '.on', '.selected', '.playing',
-    '[class*="active"]', '[class*="current"]', '[class*="on"]'
-  ];
-  for (let sel of activeSelectors) {
-    const el = document.querySelector(sel);
-    if (el) {
-      const num = extractEpisodeNumber(el);
-      if (num !== null) return num;
+// ======================= 3. 集数识别 =======================
+function isEpisodeElement(el) {
+  const text = el.innerText?.trim();
+  if (!text || text.length > 20) return false;
+  
+  const href = el.getAttribute('href') || '';
+  const className = (el.className || '').toLowerCase();
+  
+  for (let kw of episodeConfig.excludeKeywords) {
+    if (text.toLowerCase().includes(kw)) return false;
+    if (className.includes(kw)) return false;
+  }
+  
+  if (href) {
+    for (let kw of episodeConfig.excludeUrlKeywords) {
+      if (href.toLowerCase().includes(kw)) return false;
     }
   }
-  // 2. 从 URL 中提取（如 /play/318052-32-2938102.html -> 2938102）
-  const urlMatch = window.location.href.match(/(\d+)\.html$/);
-  if (urlMatch) return parseInt(urlMatch[1], 10);
-  // 3. 从页面标题提取（如 "第3集"）
-  const titleMatch = document.title.match(/第\s*(\d+)\s*集/);
-  if (titleMatch) return parseInt(titleMatch[1], 10);
-  return null;
+  
+  let hasFeature = false;
+  for (let kw of episodeConfig.mustKeywords) {
+    if (text.includes(kw)) { hasFeature = true; break; }
+  }
+  if (!hasFeature && href && href.includes('play')) hasFeature = true;
+  if (!hasFeature && className.includes('episode')) hasFeature = true;
+  if (!hasFeature && /^\d+$/.test(text)) hasFeature = true;
+  
+  if (!hasFeature) return false;
+  
+  const numMatch = text.match(/(\d+)/);
+  if (!numMatch) return false;
+  const num = parseInt(numMatch[1], 10);
+  return num >= episodeConfig.minEpisode && num <= episodeConfig.maxEpisode;
 }
 
-// 获取所有集数按钮（超广匹配）
-function getAllEpisodeButtons() {
-  // 尽可能多的选择器，覆盖各种网站结构
-  const selectors = [
-    'a', 'button', 'div', 'span', 'li', 'td'
-  ];
-  const candidates = new Set();
-  for (let sel of selectors) {
-    const elements = document.querySelectorAll(sel);
-    for (let el of elements) {
-      // 过滤：必须有数字，且数字不太大（集数一般小于500）
-      const num = extractEpisodeNumber(el);
-      if (num !== null && num > 0 && num < 2000) {
-        // 进一步过滤：检查元素是否可能是集数按钮
-        const text = el.innerText?.trim() || '';
-        const href = el.getAttribute('href') || '';
-        // 如果文字或链接包含 "集"、"第"、"episode"、"play"，或者数字单独出现（如 "3"）
-        if (text.match(/(集|第|episode|play|\b\d{1,3}\b)/i) || href.match(/(episode|play)/i)) {
-          candidates.add(el);
-        }
+async function scanEpisodesBatch() {
+  if (isScanning || scanDone) return;
+  isScanning = true;
+  pluginLog('🔍 后台扫描集数...');
+  
+  const startTime = performance.now();
+  let selector = episodeConfig.customSelector || 'a, button, [class*="episode"], [class*="num"], [class*="item"]';
+  const elements = document.querySelectorAll(selector);
+  
+  if (elements.length === 0) {
+    pluginLog('⚠️ 未找到元素');
+    isScanning = false;
+    return;
+  }
+  
+  const buttonsMap = new Map();
+  const batchSize = 100;
+  let processed = 0;
+  
+  function processBatch(startIndex) {
+    const endIndex = Math.min(startIndex + batchSize, elements.length);
+    for (let i = startIndex; i < endIndex; i++) {
+      const el = elements[i];
+      if (el.offsetParent === null) continue;
+      if (!isEpisodeElement(el)) continue;
+      
+      const text = el.innerText.trim();
+      const numMatch = text.match(/(\d+)/);
+      if (!numMatch) continue;
+      
+      let num = parseInt(numMatch[1], 10);
+      if (num < episodeConfig.minEpisode || num > episodeConfig.maxEpisode) continue;
+      
+      let url = el.getAttribute('href');
+      if (url && !url.startsWith('http') && !url.startsWith('//')) {
+        try { url = new URL(url, location.href).href; } catch(e) { url = null; }
+      }
+      
+      if (!buttonsMap.has(num) || (buttonsMap.has(num) && !buttonsMap.get(num).url && url)) {
+        buttonsMap.set(num, { element: el, url: url, text: text });
+      }
+    }
+    
+    processed = endIndex;
+    if (processed < elements.length) {
+      setTimeout(() => processBatch(processed), 16);
+    } else {
+      finalizeScan(buttonsMap, startTime);
+    }
+  }
+  
+  function finalizeScan(map, startTime) {
+    episodeButtons = Array.from(map.entries())
+      .map(([num, info]) => ({ number: num, element: info.element, url: info.url }))
+      .sort((a, b) => a.number - b.number);
+    
+    totalEpisodes = episodeButtons.length;
+    if (totalEpisodes > 0) {
+      firstEpisode = episodeButtons[0].number;
+      lastEpisode = episodeButtons[totalEpisodes - 1].number;
+      scanDone = true;
+      const elapsed = performance.now() - startTime;
+      pluginLog(`📊 扫描完成: ${totalEpisodes}集 (${firstEpisode}~${lastEpisode}) ${elapsed.toFixed(0)}ms`);
+      if (totalEpisodes <= 60) {
+        pluginLog(`📋 ${episodeButtons.map(b => b.number).join(', ')}`);
+      }
+    } else {
+      pluginLog(`⚠️ 未检测到集数`, true);
+    }
+    isScanning = false;
+  }
+  
+  processBatch(0);
+}
+
+function scheduleScan() {
+  if (scanDone || isScanning) return;
+  if (window.requestIdleCallback) {
+    requestIdleCallback(() => scanEpisodesBatch(), { timeout: 3000 });
+  } else {
+    setTimeout(() => scanEpisodesBatch(), 1500);
+  }
+}
+
+// ======================= 4. 当前集数识别 =======================
+function getCurrentEpisode() {
+  const url = location.href;
+  if (cachedUrl === url && cachedEpisode !== null) return cachedEpisode;
+  cachedUrl = url;
+  
+  if (!scanDone) return null;
+  
+  for (let btn of episodeButtons) {
+    if (btn.url && (url === btn.url || url.endsWith(btn.url.split('/').pop()))) {
+      cachedEpisode = btn.number;
+      return btn.number;
+    }
+  }
+  
+  const urlMatch = url.match(/(\d+)(?:\.html|\.htm|$)/);
+  if (urlMatch && episodeButtons.length) {
+    const urlNum = parseInt(urlMatch[1], 10);
+    for (let btn of episodeButtons) {
+      if (Math.abs(btn.number - urlNum) <= 50) {
+        cachedEpisode = btn.number;
+        return btn.number;
       }
     }
   }
-  // 去重并转换为数组
-  const buttons = Array.from(candidates).map(el => ({
-    element: el,
-    number: extractEpisodeNumber(el)
-  }));
-  // 按数字排序
-  buttons.sort((a, b) => a.number - b.number);
-  // 去重（相同数字只保留第一个）
-  const unique = [];
-  const seen = new Set();
-  for (let btn of buttons) {
-    if (!seen.has(btn.number)) {
-      seen.add(btn.number);
-      unique.push(btn);
-    }
-  }
-  console.log(`找到集数按钮: ${unique.map(b => b.number).join(', ')}`);
-  return unique;
+  
+  return null;
 }
 
-// 点击下一集
+// ======================= 5. 上下集跳转 =======================
+function getNextEpisode() {
+  if (!scanDone) return null;
+  const current = getCurrentEpisode();
+  if (current === null) return null;
+  
+  const idx = episodeButtons.findIndex(b => b.number === current);
+  if (idx === -1) return episodeButtons.find(b => b.number > current);
+  if (idx + 1 >= episodeButtons.length) return episodeButtons[0];
+  return episodeButtons[idx + 1];
+}
+
+function getPrevEpisode() {
+  if (!scanDone) return null;
+  const current = getCurrentEpisode();
+  if (current === null) return null;
+  
+  const idx = episodeButtons.findIndex(b => b.number === current);
+  if (idx === -1) return [...episodeButtons].reverse().find(b => b.number < current);
+  if (idx === 0) return episodeButtons[episodeButtons.length - 1];
+  return episodeButtons[idx - 1];
+}
+
+async function clickPrevEpisode() {
+  if (!isEnabled || clickedPrev) return;
+  clickedPrev = true;
+  if (!scanDone) scheduleScan();
+  
+  const prev = getPrevEpisode();
+  if (!prev) {
+    pluginLog('❌ 无上一集', true);
+    clickedPrev = false;
+    return;
+  }
+  
+  pluginLog(`⬅️ 上一集: 第${prev.number}集`);
+  if (prev.url && prev.url !== location.href) location.href = prev.url;
+  else if (prev.element) prev.element.click();
+  setTimeout(() => { clickedPrev = false; }, 2000);
+}
+
 async function clickNextEpisode() {
   if (!isEnabled || clickedNext) return;
-  const currentEp = getCurrentEpisode();
-  if (currentEp === null) {
-    console.log('无法识别当前集数');
-    return;
-  }
-  console.log(`当前集数: ${currentEp}`);
-  const allButtons = getAllEpisodeButtons();
-  if (allButtons.length === 0) {
-    console.log('未找到任何集数按钮');
-    return;
-  }
-  const idx = allButtons.findIndex(btn => btn.number === currentEp);
-  if (idx === -1) {
-    console.log(`当前集数 ${currentEp} 不在按钮列表中，可能是特殊ID，尝试找下一个更大的数字`);
-    // 如果找不到精确匹配，尝试找比当前数字大的最小集数
-    const nextBtn = allButtons.find(btn => btn.number > currentEp);
-    if (nextBtn) {
-      console.log(`通过大小匹配找到下一集: ${nextBtn.number}`);
-      clickedNext = true;
-      nextBtn.element.click();
-      setTimeout(() => { clickedNext = false; }, 5000);
-    }
-    return;
-  }
-  if (idx + 1 >= allButtons.length) {
-    console.log('已是最后一集');
-    return;
-  }
-  const nextBtn = allButtons[idx + 1];
-  console.log(`点击下一集: ${nextBtn.number}`);
   clickedNext = true;
-  nextBtn.element.click();
-  setTimeout(() => { clickedNext = false; }, 5000);
+  if (!scanDone) scheduleScan();
+  
+  const next = getNextEpisode();
+  if (!next) {
+    pluginLog('❌ 无下一集', true);
+    clickedNext = false;
+    return;
+  }
+  
+  pluginLog(`➡️ 下一集: 第${next.number}集`);
+  if (next.url && next.url !== location.href) location.href = next.url;
+  else if (next.element) next.element.click();
+  setTimeout(() => { clickedNext = false; }, 2000);
 }
 
-// ======================= 3. 监听视频和页面变化 =======================
-function observeVideos() {
-  document.querySelectorAll('video').forEach(v => bindVideo(v));
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach((node) => {
-        if (node.nodeName === 'VIDEO') bindVideo(node);
-        else if (node.querySelectorAll) node.querySelectorAll('video').forEach(v => bindVideo(v));
+// ======================= 6. 播放/暂停 =======================
+function togglePlayPause() {
+  const video = currentVideo || document.querySelector('video');
+  if (!video) return;
+  video.paused ? video.play() : video.pause();
+}
+
+function updatePlayPauseButton(playing) {
+  const btn = document.getElementById('play-pause-btn');
+  if (btn) btn.innerHTML = playing ? '⏸️ 暂停' : '▶️ 播放';
+}
+
+// ======================= 7. 控制按钮 =======================
+let buttonsAdded = false;
+function addControlButtons() {
+  if (buttonsAdded) return;
+  buttonsAdded = true;
+  
+  const container = document.createElement('div');
+  container.id = 'ctrl-container';
+  container.style.cssText = `
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-family: system-ui, sans-serif;
+  `;
+  
+  const prevBtn = document.createElement('div');
+  prevBtn.innerHTML = '⏪ 上一集';
+  prevBtn.style.cssText = `
+    background: #f5a623;
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 10px 18px;
+    border-radius: 30px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transition: all 0.2s ease;
+  `;
+  prevBtn.onmouseenter = () => { prevBtn.style.background = '#f5b043'; prevBtn.style.transform = 'scale(1.02)'; };
+  prevBtn.onmouseleave = () => { prevBtn.style.background = '#f5a623'; prevBtn.style.transform = 'scale(1)'; };
+  prevBtn.onclick = () => clickPrevEpisode();
+  
+  const nextBtn = document.createElement('div');
+  nextBtn.innerHTML = '⏩ 下一集';
+  nextBtn.style.cssText = `
+    background: #4c6ef5;
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 10px 18px;
+    border-radius: 30px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transition: all 0.2s ease;
+  `;
+  nextBtn.onmouseenter = () => { nextBtn.style.background = '#5f7bf6'; nextBtn.style.transform = 'scale(1.02)'; };
+  nextBtn.onmouseleave = () => { nextBtn.style.background = '#4c6ef5'; nextBtn.style.transform = 'scale(1)'; };
+  nextBtn.onclick = () => clickNextEpisode();
+  
+  const playPauseBtn = document.createElement('div');
+  playPauseBtn.id = 'play-pause-btn';
+  playPauseBtn.innerHTML = '▶️ 播放';
+  playPauseBtn.style.cssText = `
+    background: #28a745;
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 10px 18px;
+    border-radius: 30px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transition: all 0.2s ease;
+  `;
+  playPauseBtn.onmouseenter = () => { playPauseBtn.style.background = '#34ce57'; playPauseBtn.style.transform = 'scale(1.02)'; };
+  playPauseBtn.onmouseleave = () => { playPauseBtn.style.background = '#28a745'; playPauseBtn.style.transform = 'scale(1)'; };
+  playPauseBtn.onclick = () => togglePlayPause();
+  
+  container.appendChild(prevBtn);
+  container.appendChild(nextBtn);
+  container.appendChild(playPauseBtn);
+  document.body.appendChild(container);
+  pluginLog('✅ 控制按钮已添加');
+}
+
+// ======================= 8. 初始化 =======================
+function init() {
+  loadConfig().then(() => {
+    document.querySelectorAll('video').forEach(v => bindVideo(v));
+    addControlButtons();
+    setTimeout(scheduleScan, 1000);
+    
+    new MutationObserver(() => {
+      document.querySelectorAll('video').forEach(v => {
+        if (!v.dataset.skipBound) bindVideo(v);
       });
-    });
+    }).observe(document.body, { childList: true, subtree: true });
+    
+    pluginLog('🚀 视频助手已启动');
   });
-  observer.observe(document.body, { childList: true, subtree: true });
 }
 
-function resetOnNavigation() {
-  let lastUrl = location.href;
-  new MutationObserver(() => {
-    if (location.href !== lastUrl) {
-      lastUrl = location.href;
-      hasSkipped = false;
-      clickedNext = false;
-      currentVideo = null;
-      console.log('URL变化，重置状态');
-      observeVideos();
-    }
-  }).observe(document, { subtree: true, childList: true });
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
 }
-
-// ======================= 启动 =======================
-(async () => {
-  await loadConfig();
-  resetOnNavigation();
-  observeVideos();
-  console.log('增强版插件已启动');
-})();

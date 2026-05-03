@@ -224,6 +224,59 @@
 **文档版本**：2.0  
 **更新日期**：2026-05-03  
 **适用插件版本**：v2.0 及以上
+
+
+
+---
+
+## 📞 联系方式
+
+### 开发者信息
+
+| 项目 | 信息 |
+|------|------|
+| 项目名称 | 智能视频助手 (Smart Video Helper) |
+| 作者 | [penghanghang] |
+| GitHub | [https://github.com/penghanghang/chromes-phh-learn](https://github.com/penghanghang/chromes-phh-learn) |
+| 邮箱 | 447699084@qq.com
+
+### 问题反馈
+
+如果您在使用过程中遇到任何问题，或有任何建议，欢迎通过以下方式反馈：
+
+- **GitHub Issues**：[提交问题](https://github.com/penghanghang/chromes-phh-learn/issues)
+- **GitHub Discussions**：[交流讨论](https://github.com/penghanghang/chromes-phh-learn/discussions)
+- **邮件联系**：447699084@qq.com
+
+### 参与贡献
+
+欢迎贡献代码、提交Bug报告或提出新功能建议！
+
+1. Fork 本仓库
+2. 创建您的功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交您的修改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启一个 Pull Request
+
+### 支持与赞赏
+
+如果您觉得这个插件对您有帮助，欢迎：
+
+- ⭐ 给项目点个 Star
+- 📢 分享给更多需要的人
+- 💬 提供反馈和建议
+
+---
+
+## ⚠️ 免责声明
+
+本插件仅供学习和研究使用，请勿用于非法用途。使用本插件所产生的任何法律风险由使用者自行承担。
+
+---
+
+**文档版本**：2.0  
+**更新日期**：2026-05-03  
+**适用插件版本**：v2.0 及以上
 ```
 
 ---

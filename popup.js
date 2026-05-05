@@ -1,5 +1,6 @@
 const toggleBtn = document.getElementById('enableToggle');
 const skipStartInput = document.getElementById('skipStartSeconds');
+const defaultPlaybackRateSelect = document.getElementById('defaultPlaybackRate');
 const showLogPanelCheckbox = document.getElementById('showLogPanel');
 const minEpisodeInput = document.getElementById('minEpisode');
 const maxEpisodeInput = document.getElementById('maxEpisode');
@@ -12,7 +13,7 @@ const statusMsg = document.getElementById('statusMsg');
 
 async function loadConfig() {
   const result = await chrome.storage.local.get([
-    'enabled', 'skipStartSeconds', 'showLogPanel',
+    'enabled', 'skipStartSeconds', 'defaultPlaybackRate', 'showLogPanel',
     'minEpisode', 'maxEpisode', 'mustKeywords', 'excludeKeywords', 'customSelector', 'excludeUrlKeywords'
   ]);
   
@@ -21,6 +22,7 @@ async function loadConfig() {
   else toggleBtn.classList.remove('active');
   
   skipStartInput.value = result.skipStartSeconds !== undefined ? result.skipStartSeconds : 60;
+  defaultPlaybackRateSelect.value = result.defaultPlaybackRate !== undefined ? result.defaultPlaybackRate : 1.0;
   showLogPanelCheckbox.checked = result.showLogPanel !== undefined ? result.showLogPanel : true;
   
   minEpisodeInput.value = result.minEpisode !== undefined ? result.minEpisode : 1;
@@ -34,6 +36,7 @@ async function loadConfig() {
 async function saveConfig() {
   const enabled = toggleBtn.classList.contains('active');
   const skipStartSeconds = parseInt(skipStartInput.value, 10);
+  const defaultPlaybackRate = parseFloat(defaultPlaybackRateSelect.value);
   const showLogPanel = showLogPanelCheckbox.checked;
   const minEpisode = parseInt(minEpisodeInput.value, 10);
   const maxEpisode = parseInt(maxEpisodeInput.value, 10);
@@ -44,6 +47,10 @@ async function saveConfig() {
   
   if (isNaN(skipStartSeconds) || skipStartSeconds < 0) {
     statusMsg.innerText = '❌ 请输入有效秒数';
+    return;
+  }
+  if (isNaN(defaultPlaybackRate) || defaultPlaybackRate < 0.25 || defaultPlaybackRate > 4) {
+    statusMsg.innerText = '❌ 倍速范围需在0.25-4之间';
     return;
   }
   if (isNaN(minEpisode) || minEpisode < 1) {
@@ -58,6 +65,7 @@ async function saveConfig() {
   await chrome.storage.local.set({
     enabled: enabled,
     skipStartSeconds: skipStartSeconds,
+    defaultPlaybackRate: defaultPlaybackRate,
     showLogPanel: showLogPanel,
     minEpisode: minEpisode,
     maxEpisode: maxEpisode,

@@ -1,7 +1,8 @@
 // ======================= 全局变量 =======================
 let isEnabled = true;
 let skipStartSeconds = 60;
-let showLogPanel = true;           // 日志面板开关
+let showLogPanel = true;
+let defaultPlaybackRate = 1.0;       // 默认倍速
 let hasSkippedStart = false;
 let clickedNext = false;
 let clickedPrev = false;
@@ -15,6 +16,10 @@ let isScanning = false;
 let cachedEpisode = null;
 let cachedUrl = null;
 
+// 倍速相关
+let rateSet = false;                  // 是否已设置过倍速
+let currentPlaybackRate = 1.0;
+
 // 集数识别配置
 let episodeConfig = {
   minEpisode: 1,
@@ -25,7 +30,7 @@ let episodeConfig = {
   excludeUrlKeywords: ['comment', 'review', 'user', 'account', 'search']
 };
 
-// ======================= 日志函数（根据开关决定是否显示） =======================
+// ======================= 日志函数 =======================
 window.pluginLog = function(msg, isError = false) {
   if (!showLogPanel) return;
   const logPanel = document.getElementById('plugin-log-panel');
@@ -41,7 +46,6 @@ window.pluginLog = function(msg, isError = false) {
   while (logPanel.children.length > 40) logPanel.removeChild(logPanel.firstChild);
 };
 
-// ======================= 日志面板（根据开关创建） =======================
 function addPageLogger() {
   if (!showLogPanel) return;
   if (document.getElementById('plugin-log-panel')) return;
@@ -71,13 +75,14 @@ function addPageLogger() {
 // ======================= 配置加载 =======================
 async function loadConfig() {
   const result = await chrome.storage.local.get([
-    'enabled', 'skipStartSeconds', 'showLogPanel',
+    'enabled', 'skipStartSeconds', 'showLogPanel', 'defaultPlaybackRate',
     'minEpisode', 'maxEpisode', 'mustKeywords', 'excludeKeywords', 'customSelector', 'excludeUrlKeywords'
   ]);
   
   isEnabled = result.enabled !== undefined ? result.enabled : true;
   skipStartSeconds = result.skipStartSeconds !== undefined ? result.skipStartSeconds : 60;
   showLogPanel = result.showLogPanel !== undefined ? result.showLogPanel : true;
+  defaultPlaybackRate = result.defaultPlaybackRate !== undefined ? result.defaultPlaybackRate : 1.0;
   
   episodeConfig.minEpisode = result.minEpisode !== undefined ? result.minEpisode : 1;
   episodeConfig.maxEpisode = result.maxEpisode !== undefined ? result.maxEpisode : 500;
@@ -86,7 +91,6 @@ async function loadConfig() {
   episodeConfig.customSelector = result.customSelector || '';
   episodeConfig.excludeUrlKeywords = result.excludeUrlKeywords ? result.excludeUrlKeywords.split(',').map(s => s.trim().toLowerCase()) : [];
   
-  // 根据开关创建或移除日志面板
   if (showLogPanel) {
     addPageLogger();
   } else {
@@ -94,7 +98,7 @@ async function loadConfig() {
     if (panel) panel.remove();
   }
   
-  pluginLog(`配置加载完成`);
+  pluginLog(`配置加载完成 | 默认倍速: ${defaultPlaybackRate}x`);
 }
 
 chrome.storage.onChanged.addListener((changes) => {
@@ -102,6 +106,10 @@ chrome.storage.onChanged.addListener((changes) => {
   if (changes.skipStartSeconds) {
     skipStartSeconds = changes.skipStartSeconds.newValue;
     hasSkippedStart = false;
+  }
+  if (changes.defaultPlaybackRate) {
+    defaultPlaybackRate = changes.defaultPlaybackRate.newValue;
+    rateSet = false;  // 重置倍速标记
   }
   if (changes.showLogPanel) {
     showLogPanel = changes.showLogPanel.newValue;
@@ -114,6 +122,40 @@ chrome.storage.onChanged.addListener((changes) => {
   }
   loadConfig();
 });
+
+// ======================= 倍速播放函数 =======================
+function setPlaybackRate(video, rate) {
+  if (!video) return;
+  try {
+    video.playbackRate = rate;
+    currentPlaybackRate = rate;
+    pluginLog(`⚡ 播放速度设置为 ${rate}x`);
+    updateRateButtonDisplay(rate);
+  } catch(e) {
+    pluginLog(`❌ 设置倍速失败: ${e.message}`, true);
+  }
+}
+
+function increaseSpeed() {
+  const video = currentVideo || document.querySelector('video');
+  if (!video) return;
+  let newRate = Math.min(3.0, currentPlaybackRate + 0.25);
+  setPlaybackRate(video, newRate);
+}
+
+function decreaseSpeed() {
+  const video = currentVideo || document.querySelector('video');
+  if (!video) return;
+  let newRate = Math.max(0.5, currentPlaybackRate - 0.25);
+  setPlaybackRate(video, newRate);
+}
+
+function updateRateButtonDisplay(rate) {
+  const rateBtn = document.getElementById('rate-btn');
+  if (rateBtn) {
+    rateBtn.innerHTML = `${rate.toFixed(2)}x`;
+  }
+}
 
 // ======================= 1. 跳过片头 =======================
 function trySkipStart(video) {
@@ -138,6 +180,11 @@ function bindVideo(video) {
   currentVideo = video;
   
   const onPlay = () => {
+    // 设置倍速（仅第一次）
+    if (!rateSet && defaultPlaybackRate !== 1.0) {
+      setPlaybackRate(video, defaultPlaybackRate);
+      rateSet = true;
+    }
     if (!hasSkippedStart) trySkipStart(video);
     updatePlayPauseButton(true);
   };
@@ -166,6 +213,10 @@ function bindVideo(video) {
   
   if (video.readyState >= 1 && video.currentTime < skipStartSeconds) {
     trySkipStart(video);
+    if (!rateSet && defaultPlaybackRate !== 1.0 && !video.paused) {
+      setPlaybackRate(video, defaultPlaybackRate);
+      rateSet = true;
+    }
   }
   
   pluginLog(`🎬 视频绑定完成`);
@@ -390,7 +441,7 @@ function updatePlayPauseButton(playing) {
   if (btn) btn.innerHTML = playing ? '⏸️ 暂停' : '▶️ 播放';
 }
 
-// ======================= 7. 控制按钮 =======================
+// ======================= 7. 控制按钮（新增倍速控制） =======================
 let buttonsAdded = false;
 function addControlButtons() {
   if (buttonsAdded) return;
@@ -409,6 +460,7 @@ function addControlButtons() {
     font-family: system-ui, sans-serif;
   `;
   
+  // 上一集按钮
   const prevBtn = document.createElement('div');
   prevBtn.innerHTML = '⏪ 上一集';
   prevBtn.style.cssText = `
@@ -429,6 +481,7 @@ function addControlButtons() {
   prevBtn.onmouseleave = () => { prevBtn.style.background = '#f5a623'; prevBtn.style.transform = 'scale(1)'; };
   prevBtn.onclick = () => clickPrevEpisode();
   
+  // 下一集按钮
   const nextBtn = document.createElement('div');
   nextBtn.innerHTML = '⏩ 下一集';
   nextBtn.style.cssText = `
@@ -449,6 +502,7 @@ function addControlButtons() {
   nextBtn.onmouseleave = () => { nextBtn.style.background = '#4c6ef5'; nextBtn.style.transform = 'scale(1)'; };
   nextBtn.onclick = () => clickNextEpisode();
   
+  // 播放/暂停按钮
   const playPauseBtn = document.createElement('div');
   playPauseBtn.id = 'play-pause-btn';
   playPauseBtn.innerHTML = '▶️ 播放';
@@ -470,11 +524,96 @@ function addControlButtons() {
   playPauseBtn.onmouseleave = () => { playPauseBtn.style.background = '#28a745'; playPauseBtn.style.transform = 'scale(1)'; };
   playPauseBtn.onclick = () => togglePlayPause();
   
+  // 倍速控制容器
+  const rateContainer = document.createElement('div');
+  rateContainer.style.cssText = `display: flex; gap: 5px; align-items: center;`;
+  
+  // 减速按钮 (-)
+  const speedDownBtn = document.createElement('div');
+  speedDownBtn.innerHTML = '−';
+  speedDownBtn.style.cssText = `
+    background: #6c757d;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+  `;
+  speedDownBtn.onmouseenter = () => { speedDownBtn.style.background = '#5a6268'; };
+  speedDownBtn.onmouseleave = () => { speedDownBtn.style.background = '#6c757d'; };
+  speedDownBtn.onclick = () => decreaseSpeed();
+  
+  // 倍速显示按钮（点击切换常用倍速）
+  const rateBtn = document.createElement('div');
+  rateBtn.id = 'rate-btn';
+  rateBtn.innerHTML = `${defaultPlaybackRate.toFixed(2)}x`;
+  rateBtn.style.cssText = `
+    background: #17a2b8;
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+    width: 60px;
+    height: 36px;
+    border-radius: 30px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+  `;
+  rateBtn.onmouseenter = () => { rateBtn.style.background = '#138496'; };
+  rateBtn.onmouseleave = () => { rateBtn.style.background = '#17a2b8'; };
+  rateBtn.onclick = () => {
+    const rates = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
+    let current = currentPlaybackRate;
+    let next = rates[0];
+    for (let i = 0; i < rates.length; i++) {
+      if (rates[i] > current + 0.01) {
+        next = rates[i];
+        break;
+      }
+    }
+    setPlaybackRate(currentVideo || document.querySelector('video'), next);
+  };
+  
+  // 加速按钮 (+)
+  const speedUpBtn = document.createElement('div');
+  speedUpBtn.innerHTML = '+';
+  speedUpBtn.style.cssText = `
+    background: #6c757d;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+  `;
+  speedUpBtn.onmouseenter = () => { speedUpBtn.style.background = '#5a6268'; };
+  speedUpBtn.onmouseleave = () => { speedUpBtn.style.background = '#6c757d'; };
+  speedUpBtn.onclick = () => increaseSpeed();
+  
+  rateContainer.appendChild(speedDownBtn);
+  rateContainer.appendChild(rateBtn);
+  rateContainer.appendChild(speedUpBtn);
+  
   container.appendChild(prevBtn);
   container.appendChild(nextBtn);
   container.appendChild(playPauseBtn);
+  container.appendChild(rateContainer);
+  
   document.body.appendChild(container);
-  pluginLog('✅ 控制按钮已添加');
+  pluginLog('✅ 控制按钮已添加（含倍速控制）');
 }
 
 // ======================= 8. 初始化 =======================
@@ -490,7 +629,7 @@ function init() {
       });
     }).observe(document.body, { childList: true, subtree: true });
     
-    pluginLog('🚀 视频助手已启动');
+    pluginLog('🚀 视频助手已启动（倍速播放版）');
   });
 }
 
